@@ -1,0 +1,424 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, where, doc, setDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+// Variables globales para la configuraciÃ³n de Firebase y la autenticaciÃ³n
+const __app_id = 'default-app-id';
+const __firebase_config = '{}';
+const __initial_auth_token = null;
+
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+
+let userId = null;
+let chequesCollectionRef;
+let summaryCollectionRef;
+let allChequeData = [];
+let allSummaryData = [];
+let rechartsLoaded = false;
+
+const fileInput = document.getElementById('fileInput');
+const addChequeBtn = document.getElementById('addChequeBtn');
+const refreshDataBtn = document.getElementById('refreshDataBtn');
+const loadingDiv = document.getElementById('loading');
+const errorMsgDiv = document.getElementById('errorMsg');
+const feedbackMsgDiv = document.getElementById('feedbackMsg');
+const userIdSpan = document.getElementById('userIdSpan');
+const chequeModal = document.getElementById('chequeModal');
+const chequeForm = document.getElementById('chequeForm');
+const cancelBtn = document.getElementById('cancelBtn');
+const modalTitle = document.getElementById('modalTitle');
+const submitBtn = document.getElementById('submitBtn');
+const chequesSection = document.getElementById('chequesSection');
+const summarySection = document.getElementById('summarySection');
+const chequesTableBody = document.querySelector('#chequesTable tbody');
+const summaryTableBody = document.querySelector('#summaryTable tbody');
+const bankFilter = document.getElementById('bankFilter');
+const startDateFilter = document.getElementById('startDateFilter');
+const endDateFilter = document.getElementById('endDateFilter');
+const chequesCount = document.getElementById('chequesCount');
+
+let editingChequeId = null;
+
+const showMessage = (element, message, type = 'feedback') => {
+    element.innerText = message;
+    element.classList.remove('hidden');
+    element.classList.remove('bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+    if (type === 'error') {
+        element.classList.add('bg-red-100', 'text-red-700');
+    } else {
+        element.classList.add('bg-green-100', 'text-green-700');
+    }
+    setTimeout(() => {
+        element.classList.add('hidden');
+    }, 5000);
+};
+
+const setLoading = (isLoading) => {
+    if (isLoading) {
+        loadingDiv.classList.remove('hidden');
+    } else {
+        loadingDiv.classList.add('hidden');
+    }
+};
+
+const loadRecharts = () => {
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/recharts@2.1.10/dist/recharts.js';
+        script.onload = () => resolve(window.Recharts);
+        document.head.appendChild(script);
+    });
+};
+
+const renderChart = async (data) => {
+    if (!rechartsLoaded) {
+        const Recharts = await loadRecharts();
+        if (!Recharts) return;
+        window.Recharts = Recharts;
+        rechartsLoaded = true;
+    }
+
+    const chartContainer = document.getElementById('chartContainer');
+    if (!chartContainer) return;
+
+    // A simple implementation of rendering a div with chart data, as Recharts
+    // requires a React-like environment to be used properly.
+    const chartData = data.map(item => ({
+        name: item['Etiquetas de fila'],
+        'Importe Emitido': item['Suma de Importe']
+    }));
+
+    chartContainer.innerHTML = `
+        <div style="font-size: 14px; text-align: center; margin-bottom: 10px;">Gráfico de Barras de Emisión</div>
+        <div style="display: flex; align-items: flex-end; justify-content: space-around; height: 100%;">
+            ${chartData.map(item => `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: ${item['Importe Emitido'] / Math.max(...chartData.map(d => d['Importe Emitido'])) * 100}%; width: 20px; background-color: #3B82F6; border-radius: 4px;">
+                    <div style="font-size: 10px; color: #333; margin-top: 5px;">$${item['Importe Emitido'].toLocaleString()}</div>
+                    <div style="font-size: 12px; transform: rotate(-45deg); white-space: nowrap; margin-top: 5px; color: #555;">${item.name}</div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+};
+
+const renderChequesTable = (data) => {
+    chequesTableBody.innerHTML = '';
+    if (data.length === 0) {
+        chequesSection.classList.add('hidden');
+        return;
+    }
+
+    chequesSection.classList.remove('hidden');
+    chequesCount.innerText = `Mostrando ${data.length} de ${allChequeData.length} cheques.`;
+    
+    data.forEach(cheque => {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50';
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${cheque.Fecha || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${cheque.Cheque || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${cheque.Bco || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${cheque.Importe ? `$${parseFloat(cheque.Importe).toLocaleString()}` : 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${cheque.Observaciones || 'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <button class="text-indigo-600 hover:text-indigo-900 mr-2 edit-btn" data-id="${cheque.id}">Editar</button>
+                <button class="text-red-600 hover:text-red-900 mr-2 delete-btn" data-id="${cheque.id}">Eliminar</button>
+                <button class="rounded-full px-3 py-1 text-xs font-semibold toggle-pagado-btn ${cheque.Pagado > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}" data-id="${cheque.id}" data-pagado="${cheque.Pagado}">
+                    ${cheque.Pagado > 0 ? 'Pagado' : 'Pendiente'}
+                </button>
+            </td>
+        `;
+        chequesTableBody.appendChild(row);
+    });
+
+    document.querySelectorAll('.edit-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const id = e.target.dataset.id;
+            const cheque = allChequeData.find(c => c.id === id);
+            if (cheque) {
+                editingChequeId = id;
+                modalTitle.innerText = "Editar Cheque";
+                submitBtn.innerText = "Guardar Cambios";
+                document.getElementById('formFecha').value = cheque.Fecha || '';
+                document.getElementById('formCheque').value = cheque.Cheque || '';
+                document.getElementById('formTalon').value = cheque['Talon N°'] || '';
+                document.getElementById('formBco').value = cheque.Bco || '';
+                document.getElementById('formImporte').value = cheque.Importe || '';
+                document.getElementById('formObservaciones').value = cheque.Observaciones || '';
+                chequeModal.classList.add('show');
+            }
+        });
+    });
+
+    document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const id = e.target.dataset.id;
+            handleDelete(id);
+        });
+    });
+
+    document.querySelectorAll('.toggle-pagado-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const id = e.target.dataset.id;
+            const cheque = allChequeData.find(c => c.id === id);
+            if (cheque) {
+              handlePagado(cheque);
+            }
+        });
+    });
+};
+
+const renderSummaryTable = (data) => {
+    summaryTableBody.innerHTML = '';
+    if (data.length === 0) {
+        summarySection.classList.add('hidden');
+        return;
+    }
+    summarySection.classList.remove('hidden');
+
+    data.forEach(row => {
+        const tableRow = document.createElement('tr');
+        tableRow.className = 'hover:bg-gray-50';
+        tableRow.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${row['Etiquetas de fila']}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${`$${parseFloat(row['Suma de Importe']).toLocaleString()}`}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${`$${parseFloat(row['Suma de Pagado']).toLocaleString()}`}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${`$${parseFloat(row['Suma de Saldo']).toLocaleString()}`}</td>
+        `;
+        summaryTableBody.appendChild(tableRow);
+    });
+};
+
+const fetchAndProcessData = async () => {
+    if (!db || !userId) return;
+    setLoading(true);
+    try {
+        chequesCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/cheques`);
+        summaryCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/summary`);
+
+        const chequesSnapshot = await getDocs(chequesCollectionRef);
+        allChequeData = chequesSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        const summarySnapshot = await getDocs(summaryCollectionRef);
+        allSummaryData = summarySnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        const getMonthOrder = (month) => {
+            const monthOrder = { 'Ene': 1, 'Feb': 2, 'Mar': 3, 'Abr': 4, 'May': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dic': 12 };
+            return monthOrder[month];
+        };
+
+        const sortedSummary = allSummaryData.sort((a, b) => getMonthOrder(a['Etiquetas de fila']) - getMonthOrder(b['Etiquetas de fila']));
+        
+        renderChequesTable(allChequeData);
+        renderSummaryTable(sortedSummary);
+        renderChart(sortedSummary);
+        
+        const uniqueBanks = [...new Set(allChequeData.map(cheque => cheque.Bco).filter(Boolean))];
+        bankFilter.innerHTML = '<option value="Todos">Todos los Bancos</option>' + uniqueBanks.map(b => `<option value="${b}">${b}</option>`).join('');
+
+    } catch (e) {
+        console.error("Error al obtener los datos:", e);
+        showMessage(errorMsgDiv, 'Error al cargar los datos. Por favor, intente de nuevo.', 'error');
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !db || !userId) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        const content = event.target.result;
+        const lines = content.split('\n').filter(line => line.trim() !== '');
+        if (lines.length === 0) {
+            showMessage(errorMsgDiv, "El archivo estÃ¡ vacÃ­o o el formato es incorrecto.", 'error');
+            setLoading(false);
+            return;
+        }
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const data = lines.slice(1).map(line => {
+            const values = line.split(',');
+            const row = {};
+            headers.forEach((header, i) => {
+              let value = values[i] ? values[i].trim().replace(/"/g, '') : '';
+              const num = parseFloat(value.replace(/\./g, '').replace(',', '.'));
+              if (!isNaN(num)) value = num;
+              row[header] = value;
+            });
+            return row;
+        });
+        
+        try {
+            if (file.name.includes('Tabla Madre')) {
+                const chequesCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/cheques`);
+                const promises = data.map(async (cheque) => {
+                  const docId = `cheque_${cheque.Cheque}_${cheque['Talon N°']}`;
+                  const docRef = doc(chequesCollectionRef, docId);
+                  await setDoc(docRef, cheque);
+                });
+                await Promise.all(promises);
+            } else if (file.name.includes('Resumen')) {
+                const summaryCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/summary`);
+                const existingSummarySnapshot = await getDocs(summaryCollectionRef);
+                const deletePromises = existingSummarySnapshot.docs.map(d => deleteDoc(doc(summaryCollectionRef, d.id)));
+                await Promise.all(deletePromises);
+                const promises = data.map(async (summaryRow) => {
+                  if (summaryRow['Etiquetas de fila']) {
+                    const docRef = doc(summaryCollectionRef, summaryRow['Etiquetas de fila']);
+                    await setDoc(docRef, summaryRow);
+                  }
+                });
+                await Promise.all(promises);
+            } else {
+                showMessage(feedbackMsgDiv, 'Archivo no reconocido. Solo se aceptan "Tabla Madre" y "Resumen".');
+            }
+            showMessage(feedbackMsgDiv, `¡Archivo "${file.name}" subido y guardado exitosamente!`);
+            fetchAndProcessData();
+        } catch (e) {
+            console.error("Error al guardar en la base de datos:", e);
+            showMessage(errorMsgDiv, 'Error al guardar los datos. Por favor, intente de nuevo.', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+    reader.readAsText(file);
+};
+
+const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (!db || !userId) {
+        showMessage(errorMsgDiv, 'Base de datos no disponible.', 'error');
+        return;
+    }
+    setLoading(true);
+    const formElements = e.target.elements;
+    const chequeData = {
+        Fecha: formElements.Fecha.value,
+        Cheque: formElements.Cheque.value,
+        'Talon N°': formElements['Talon N°'].value,
+        Bco: formElements.Bco.value,
+        Importe: parseFloat(formElements.Importe.value),
+        Observaciones: formElements.Observaciones.value,
+        Pagado: 0,
+        Saldo: parseFloat(formElements.Importe.value)
+    };
+
+    try {
+        const chequesCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/cheques`);
+        if (editingChequeId) {
+            const docRef = doc(chequesCollectionRef, editingChequeId);
+            await updateDoc(docRef, chequeData);
+            showMessage(feedbackMsgDiv, '¡Cheque actualizado con éxito!');
+            editingChequeId = null;
+        } else {
+            await addDoc(chequesCollectionRef, chequeData);
+            showMessage(feedbackMsgDiv, '¡Nuevo cheque agregado con éxito!');
+        }
+        chequeForm.reset();
+        chequeModal.classList.remove('show');
+        fetchAndProcessData();
+    } catch (error) {
+        console.error("Error al guardar/editar el cheque:", error);
+        showMessage(errorMsgDiv, 'Error al guardar el cheque. Verifique los datos.', 'error');
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handleDelete = async (chequeId) => {
+    if (!db || !userId || !confirm('¿EstÃ¡s seguro de que quieres eliminar este cheque?')) {
+        return;
+    }
+    setLoading(true);
+    try {
+        const docRef = doc(db, `artifacts/${__app_id}/users/${userId}/cheques`, chequeId);
+        await deleteDoc(docRef);
+        showMessage(feedbackMsgDiv, '¡Cheque eliminado con éxito!');
+        fetchAndProcessData();
+    } catch (error) {
+        console.error("Error al eliminar el cheque:", error);
+        showMessage(errorMsgDiv, 'Error al eliminar el cheque.', 'error');
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handlePagado = async (cheque) => {
+    if (!db || !userId) return;
+    setLoading(true);
+    try {
+      const docRef = doc(db, `artifacts/${__app_id}/users/${userId}/cheques`, cheque.id);
+      await updateDoc(docRef, { Pagado: cheque.Pagado > 0 ? 0 : cheque.Importe });
+      fetchAndProcessData();
+    } catch (e) {
+      console.error("Error al actualizar el estado de pagado:", e);
+      showMessage(errorMsgDiv, 'Error al actualizar el estado de pagado.', 'error');
+    } finally {
+      setLoading(false);
+    }
+};
+
+const filterData = () => {
+    const bank = bankFilter.value;
+    const startDate = startDateFilter.value ? new Date(startDateFilter.value) : null;
+    const endDate = endDateFilter.value ? new Date(endDateFilter.value) : null;
+
+    const filtered = allChequeData.filter(cheque => {
+        const bankMatch = bank === 'Todos' || cheque.Bco === bank;
+        const chequeDate = cheque.Fecha ? new Date(cheque.Fecha) : null;
+        const dateMatch = !chequeDate ||
+            (!startDate || chequeDate >= startDate) &&
+            (!endDate || chequeDate <= endDate);
+        return bankMatch && dateMatch;
+    });
+
+    renderChequesTable(filtered);
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (auth) {
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                userId = user.uid;
+                userIdSpan.innerText = userId;
+                fetchAndProcessData();
+            } else {
+                try {
+                    if (__initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    userId = auth.currentUser.uid;
+                    userIdSpan.innerText = userId;
+                    fetchAndProcessData();
+                } catch (err) {
+                    console.error("Authentication error:", err);
+                    showMessage(errorMsgDiv, 'Error de autenticaciÃ³n.', 'error');
+                }
+            }
+        });
+    } else {
+        showMessage(errorMsgDiv, 'No se pudo inicializar la aplicaciÃ³n. Verifique la configuraciÃ³n de Firebase.', 'error');
+    }
+
+    fileInput.addEventListener('change', handleFileUpload);
+    addChequeBtn.addEventListener('click', () => {
+        chequeForm.reset();
+        modalTitle.innerText = "Añadir Nuevo Cheque";
+        submitBtn.innerText = "Añadir Cheque";
+        editingChequeId = null;
+        chequeModal.classList.add('show');
+    });
+    refreshDataBtn.addEventListener('click', fetchAndProcessData);
+    cancelBtn.addEventListener('click', () => chequeModal.classList.remove('show'));
+    chequeForm.addEventListener('submit', handleFormSubmit);
+    bankFilter.addEventListener('change', filterData);
+    startDateFilter.addEventListener('change', filterData);
+    endDateFilter.addEventListener('change', filterData);
+});
