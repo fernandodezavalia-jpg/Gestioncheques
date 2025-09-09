@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Cheques</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8 antialiased">
+    <div class="flex flex-col items-center">
+        <div class="w-full max-w-5xl bg-white rounded-xl shadow-lg p-6">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-gray-800">Gestión de Cheques</h1>
+                <p class="text-gray-500 mt-2">
+                    Bienvenido, Fernando José. Sube tus archivos CSV o gestiona tus cheques manualmente.
+                </p>
+                <div id="userIdDisplay" class="mt-2 text-sm text-gray-400">ID de Usuario: <span id="userIdSpan" class="font-mono">Cargando...</span></div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-x-4 md:space-y-0 mb-6">
+                <label class="flex items-center justify-center bg-green-500 text-white py-3 px-6 rounded-full cursor-pointer hover:bg-green-600 transition duration-300 shadow-md">
+                    <span>Subir Archivo (.csv)</span>
+                    <input type="file" id="fileInput" accept=".csv" class="hidden" />
+                </label>
+                <button id="addChequeBtn" class="bg-purple-500 text-white py-3 px-6 rounded-full hover:bg-purple-600 transition duration-300 shadow-md">
+                    Añadir Cheque
+                </button>
+                <button id="refreshDataBtn" class="bg-blue-500 text-white py-3 px-6 rounded-full hover:bg-blue-600 transition duration-300 shadow-md">
+                    Actualizar Datos
+                </button>
+            </div>
+
+            <!-- Loading, Error, and Feedback Messages -->
+            <div id="loading" class="hidden text-center text-gray-500 my-4">Cargando...</div>
+            <div id="errorMsg" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-4"></div>
+            <div id="feedbackMsg" class="hidden bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg relative mb-4"></div>
+            
+            <!-- Modal for Adding/Editing Cheque -->
+            <div id="chequeModal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center p-4">
+                <div class="relative bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+                    <h2 id="modalTitle" class="text-2xl font-bold mb-4">Añadir Nuevo Cheque</h2>
+                    <form id="chequeForm" class="space-y-4">
+                        <input type="text" id="formFecha" name="Fecha" placeholder="Fecha (ej: 2025-09-09)" class="w-full p-2 border rounded-lg" required />
+                        <input type="text" id="formCheque" name="Cheque" placeholder="Cheque" class="w-full p-2 border rounded-lg" required />
+                        <input type="text" id="formTalon" name="Talon N°" placeholder="Talon N°" class="w-full p-2 border rounded-lg" />
+                        <input type="text" id="formBco" name="Bco" placeholder="Banco" class="w-full p-2 border rounded-lg" />
+                        <input type="number" id="formImporte" name="Importe" placeholder="Importe" class="w-full p-2 border rounded-lg" required />
+                        <input type="text" id="formObservaciones" name="Observaciones" placeholder="Observaciones" class="w-full p-2 border rounded-lg" />
+                        <div class="flex justify-end space-x-2 mt-4">
+                            <button type="button" id="cancelBtn" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-400 transition">Cancelar</button>
+                            <button type="submit" id="submitBtn" class="bg-purple-500 text-white py-2 px-4 rounded-lg hover:bg-purple-600 transition">Añadir Cheque</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Summary and Data Tables -->
+            <div class="space-y-8 mt-8">
+                <div id="summarySection" class="hidden bg-gray-50 rounded-lg p-4 shadow-sm">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">Resumen de Emisión por Mes</h2>
+                    <div id="chartContainer" style="width: 100%; height: 320px;"></div>
+                    <div class="mt-4 overflow-x-auto">
+                        <table id="summaryTable" class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mes</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suma de Importe</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suma de Pagado</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suma de Saldo</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="chequesSection" class="hidden bg-gray-50 rounded-lg p-4 shadow-sm">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">Base de Datos de Cheques</h2>
+                    <div class="flex flex-col md:flex-row items-center md:space-x-4 space-y-4 md:space-y-0 mb-4">
+                        <div class="w-full md:w-1/3">
+                            <label class="block text-sm font-medium text-gray-700">Filtrar por Banco</label>
+                            <select id="bankFilter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></select>
+                        </div>
+                        <div class="w-full md:w-1/3">
+                            <label class="block text-sm font-medium text-gray-700">Fecha de Inicio</label>
+                            <input type="date" id="startDateFilter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
+                        </div>
+                        <div class="w-full md:w-1/3">
+                            <label class="block text-sm font-medium text-gray-700">Fecha de Fin</label>
+                            <input type="date" id="endDateFilter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
+                        </div>
+                    </div>
+                    <p id="chequesCount" class="text-sm text-gray-500 mb-2">Mostrando 0 de 0 cheques.</p>
+                    <div class="overflow-x-auto">
+                        <table id="chequesTable" class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cheque</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Banco</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Importe</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Observaciones</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="./script.js"></script>
+</body>
+</html>
