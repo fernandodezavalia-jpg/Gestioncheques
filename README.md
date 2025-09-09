@@ -1,47 +1,41 @@
 # Gestion Cheques
+
 Una aplicación web simple y robusta para gestionar tus cheques. Sube datos desde archivos CSV, añade cheques manualmente y visualiza un resumen de tus movimientos financieros.
-Esta aplicación te permite:
-Subir datos de cheques desde archivos CSV.
 
-Añadir, editar y eliminar cheques manualmente.
+## Características
 
-Filtrar cheques por banco y rango de fechas.
+- Subir datos de cheques desde archivos CSV.
+- Añadir, editar y eliminar cheques manualmente.
+- Filtrar cheques por banco y rango de fechas.
+- Marcar cheques como pagados o pendientes.
+- Visualizar un resumen mensual en una tabla y un gráfico.
+- Guardar todos tus datos de forma segura y persistente en una base de datos en la nube.
 
-Marcar cheques como pagados o pendientes.
+## Estructura del Proyecto
 
-Visualizar un resumen mensual en una tabla y un gráfico.
+- `index.html`: La estructura principal de la aplicación.
+- `style.css`: Los estilos y el diseño de la interfaz de usuario.
+- `script.js`: Toda la lógica de la aplicación, incluyendo la conexión a la base de datos y la gestión de datos.
 
-Guardar todos tus datos de forma segura y persistente en una base de datos en la nube.
+## Cómo Empezar
 
-Estructura del Proyecto
-index.html: La estructura principal de la aplicación.
+1. Crea un nuevo repositorio en GitHub.
+2. Copia y pega el contenido de `index.html`, `style.css` y `script.js` en los archivos correspondientes en tu repositorio.
+3. Abre el archivo `index.html` en tu navegador. ¡No necesitas un servidor web ni ninguna configuración adicional!
 
-style.css: Los estilos y el diseño de la interfaz de usuario.
+## Uso de la Aplicación
 
-script.js: Toda la lógica de la aplicación, incluyendo la conexión a la base de datos y la gestión de datos.
+### Subir tus datos
 
-Cómo Empezar
-Crea un nuevo repositorio en GitHub.
+- Haz clic en **Subir Archivo (.csv)** para cargar tu "Tabla Madre" y tu "Resumen". La aplicación guardará estos datos en tu base de datos personal.
 
-Copia y pega el contenido de index.html, style.css y script.js en los archivos correspondientes en tu repositorio.
+### Gestionar tus cheques
 
-Abre el archivo index.html en tu navegador. ¡No necesitas un servidor web ni ninguna configuración adicional!
+- Usa el botón **Añadir Cheque** para registrar un nuevo cheque manualmente.
+- En la tabla, haz clic en **Editar** o **Eliminar** en la fila de cada cheque para modificar o borrar registros.
+- El botón **Pagado / Pendiente** te permite cambiar el estado de un cheque con un solo clic.
 
-Uso de la Aplicación
-Sube tus datos:
+### Analizar tu información
 
-Haz clic en Subir Archivo (.csv) para cargar tu "Tabla Madre" y tu "Resumen". La aplicación guardará estos datos en tu base de datos personal.
-
-Gestiona tus cheques:
-
-Usa el botón Añadir Cheque para registrar un nuevo cheque manualmente.
-
-En la tabla, haz clic en Editar o Eliminar en la fila de cada cheque para modificar o borrar registros.
-
-El botón Pagado / Pendiente te permite cambiar el estado de un cheque con un solo clic.
-
-Analiza tu información:
-
-Usa los filtros por banco y fecha para encontrar información específica.
-
-La sección de resumen y el gráfico te darán una visión rápida de tus movimientos financieros a lo largo del tiempo.
+- Usa los filtros por banco y fecha para encontrar información específica.
+- La sección de resumen y el gráfico te darán una visión rápida de tus movimientos financieros a lo largo del tiempo.
